@@ -1,0 +1,14 @@
+{
+  "name": "買い物台帳",
+  "short_name": "買い物台帳",
+  "description": "レシートを記録し、購入間隔と価格から次の買い時を提案する端末内完結アプリ",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#F4F5F2",
+  "theme_color": "#1B2430",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
