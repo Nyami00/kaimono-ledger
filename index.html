@@ -220,6 +220,7 @@
     </div>
     <div class="card">
       <h2>データ管理</h2>
+      <p class="hint" id="storage-status" style="margin-top:0"></p>
       <button class="btn danger" id="btn-clear">全データを削除</button>
       <p class="hint">この端末のブラウザ内データのみを削除します。元に戻せません。</p>
     </div>
@@ -621,6 +622,25 @@ function refreshDatalists(){
 }
 function updateCount(){ $("#count-sub").textContent = PURCHASES.length? `${PURCHASES.length}件 記録済み` : ""; }
 
+async function updateStorageStatus(){
+  const el = $("#storage-status"); if(!el) return;
+  let txt = "";
+  try{
+    if(navigator.storage){
+      if(navigator.storage.persisted){
+        const p = await navigator.storage.persisted();
+        txt += p ? "保存領域：永続化済み（端末の空き不足でも自動削除されにくい）"
+                 : "保存領域：通常（空き容量不足時に自動削除される可能性あり）";
+      }
+      if(navigator.storage.estimate){
+        const est = await navigator.storage.estimate();
+        if(est && est.usage!=null) txt += ` ・ 使用量 約${(est.usage/1048576).toFixed(1)}MB`;
+      }
+    }
+  }catch{}
+  el.textContent = txt + (txt ? " ／ 念のため定期的にJSONバックアップを推奨" : "念のため定期的にJSONバックアップを推奨");
+}
+
 /* ---------- タブ切替 ---------- */
 function go(id){
   document.querySelectorAll(".view").forEach(v=> v.classList.toggle("active", v.id===id));
@@ -628,6 +648,7 @@ function go(id){
   window.scrollTo(0,0);
   if(id==="v-list") renderList();
   if(id==="v-stats") renderStats();
+  if(id==="v-set") updateStorageStatus();
 }
 document.querySelectorAll("nav button").forEach(b=> b.addEventListener("click", ()=> go(b.dataset.go)));
 
@@ -650,6 +671,9 @@ $("#btn-json").addEventListener("click", exportJSON);
   $("#f-date").value = todayISO();
   $("#prompt-view").textContent = READ_PROMPT;
   refreshDatalists(); updateCount();
+  // 保存領域の永続化を要求（ブラウザの自動削除対象から外す。手動削除は別）
+  try{ if(navigator.storage?.persist){ const p=await navigator.storage.persisted(); if(!p) await navigator.storage.persist(); } }catch{}
+  updateStorageStatus();
   if("serviceWorker" in navigator){ try{ await navigator.serviceWorker.register("sw.js"); }catch{} }
 })();
 </script>
