@@ -90,6 +90,13 @@
   .trend-up{color:var(--danger)} .trend-down{color:var(--ok)} .trend-flat{color:var(--muted)}
   .empty{text-align:center; color:var(--muted); padding:34px 8px; font-size:14px}
   .empty .big{font-size:15px; color:var(--ink); font-weight:600; margin-bottom:4px}
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chip{padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; background:#fff;
+    color:var(--ink); font-size:13.5px; font-weight:600; cursor:pointer; white-space:nowrap}
+  .chip:active{background:#F1F3F0}
+  .chip[aria-pressed="true"]{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .chip[aria-pressed="true"]:active{background:var(--accent-d)}
+  .kv .plain{font-family:var(--sans); font-size:13px}
   .search{margin-bottom:12px}
   .hint{font-size:12px; color:var(--muted); margin:6px 2px 0; line-height:1.5}
   .note{background:#EEF1ED; border-radius:var(--r-sm); padding:10px 12px; font-size:12.5px; color:var(--muted); line-height:1.55}
@@ -109,7 +116,7 @@
   #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
   nav{position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--surface);
     border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom);
-    display:grid; grid-template-columns:repeat(4,1fr);}
+    display:grid; grid-template-columns:repeat(5,1fr);}
   nav button{background:none; border:0; padding:10px 0 9px; cursor:pointer; color:var(--muted);
     display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11px; font-weight:600;}
   nav button .ic{width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.7}
@@ -158,9 +165,13 @@
           <input id="f-cat" type="text" list="cat-list" placeholder="食品 など" autocomplete="off">
           <datalist id="cat-list"></datalist></label>
       </div>
-      <label class="f"><span>店舗（任意）</span>
-        <input id="f-store" type="text" list="store-list" placeholder="店名" autocomplete="off">
-        <datalist id="store-list"></datalist></label>
+      <div class="row">
+        <label class="f"><span>店舗（任意）</span>
+          <input id="f-store" type="text" list="store-list" placeholder="店名" autocomplete="off">
+          <datalist id="store-list"></datalist></label>
+        <label class="f"><span>業態（任意）</span>
+          <select id="f-storetype"><option value="">未選択</option></select></label>
+      </div>
       <label class="f"><span>メモ（任意）</span>
         <textarea id="f-note" placeholder=""></textarea></label>
       <button class="btn" id="btn-save">この明細を記録する</button>
@@ -185,6 +196,19 @@
       <input id="q" type="search" placeholder="商品名・店舗で絞り込み" autocomplete="off">
     </div>
     <div id="list-body"></div>
+  </section>
+
+  <!-- ============ 買う候補（リピート・店で選ぶ）============ -->
+  <section id="v-buy" class="view">
+    <div class="card">
+      <h2>これから行く店</h2>
+      <div id="store-chips" class="chips"></div>
+      <p class="hint">店を選ぶと、その店でよく買うものに絞り込みます。もう一度押すと解除。</p>
+    </div>
+    <div class="card">
+      <h2 id="buy-title">よく買うもの（4回以上）</h2>
+      <div id="buy-body"></div>
+    </div>
   </section>
 
   <!-- ============ 分析・提案 ============ -->
@@ -235,6 +259,8 @@
     <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>記録</button>
   <button data-go="v-list">
     <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>一覧</button>
+  <button data-go="v-buy">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h3l2.3 12a1 1 0 0 0 1 .8h9a1 1 0 0 0 1-.8L21 7H6"/></svg>候補</button>
   <button data-go="v-stats">
     <svg class="ic" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>分析</button>
   <button data-go="v-set">
@@ -254,12 +280,46 @@
 /* ---------- 読み取りプロンプト（Claude/ChatGPTに渡す定型）---------- */
 const READ_PROMPT =
 `あなたはレシート解析エンジンです。アップロードしたレシート画像から購入明細を抽出し、JSONのみ出力してください。前置き・説明・コードフェンス不要。
-スキーマ: {"store": string, "date": "YYYY-MM-DD", "items": [{"name": string, "price": number, "quantity": number}], "total": number}
+スキーマ: {"store": string, "storeType": string, "date": "YYYY-MM-DD", "items": [{"name": string, "price": number, "quantity": number}], "total": number}
 規則:
 - price は税込の数値（記号・カンマなし）。割引/小計/合計/お預り/お釣り/ポイントは items に含めない。
 - 商品名は表記のまま。判読不能な行は除外。
 - date が和暦や曜日付きでも YYYY-MM-DD に正規化。年が無ければ今年。
+- storeType は店の業態。次のいずれか1つに分類: "スーパー" / "ドラッグストア" / "コンビニ" / "ホームセンター" / "百貨店・モール" / "ネット通販" / "その他"。店名やレシートから判断できなければ ""。
 - 読めない値は空文字/0。推測で創作しない。`;
+
+/* ---------- 業態（店の種類） ---------- */
+const STORE_TYPES = ["スーパー","ドラッグストア","コンビニ","ホームセンター","百貨店・モール","ネット通販","その他"];
+// LLM/手入力の表記ゆれを既定の業態ラベルに寄せる
+function normalizeStoreType(v){
+  const s = (v||"").normalize("NFKC").trim();
+  if(!s) return "";
+  if(STORE_TYPES.includes(s)) return s;
+  if(/コンビニ|convenience|conveni/i.test(s)) return "コンビニ";
+  if(/ドラッグ|drug|薬/i.test(s)) return "ドラッグストア";
+  if(/ホームセンター|home\s*center|ホムセン/i.test(s)) return "ホームセンター";
+  if(/百貨店|デパート|department|モール|mall/i.test(s)) return "百貨店・モール";
+  if(/ネット|オンライン|通販|online|e-?c\b|amazon|楽天/i.test(s)) return "ネット通販";
+  if(/スーパー|supermarket|grocery|market/i.test(s)) return "スーパー";
+  return "その他";
+}
+// 店名から業態を推定（業態未登録の過去データ用フォールバック。主要チェーンのみ）
+const STORE_TYPE_HINTS = [
+  ["コンビニ", /セブン|7\s*-?\s*11|ローソン|lawson|ファミリーマート|ファミマ|familymart|ミニストップ|ministop|デイリーヤマザキ|セイコーマート|ニューデイズ|newdays|ポプラ/i],
+  ["ドラッグストア", /ドラッグ|drug|薬局|くすり|マツモトキヨシ|マツキヨ|ウエルシア|welcia|スギ薬局|スギドラッグ|ココカラ|ツルハ|サンドラッグ|クリエイト|コスモス|ダイコク|セイジョー|キリン堂/i],
+  ["ホームセンター", /ホームセンター|ホムセン|カインズ|cainz|コーナン|コメリ|dcm|ナフコ|ビバホーム|ジョイフル|ハンズマン/i],
+  ["百貨店・モール", /百貨店|髙島屋|高島屋|三越|伊勢丹|大丸|松坂屋|そごう|パルコ|parco|ルミネ|lumine|アトレ|マルイ|丸井/i],
+  ["ネット通販", /amazon|アマゾン|楽天|rakuten|yahoo|ヨドバシ|メルカリ|オンライン|online|通販/i],
+  ["スーパー", /スーパー|イオン|aeon|ライフ|業務スーパー|マックスバリュ|maxvalu|西友|seiyu|サミット|イトーヨーカ|ヨーカ堂|マルエツ|オーケー|okストア|コープ|生協|ベルク|ヤオコー|カスミ|成城石井|いなげや|東急ストア|阪急オアシス|ダイエー|ロピア|トライアル/i],
+];
+function inferStoreType(store){
+  const s = (store||"").normalize("NFKC");
+  if(!s) return "";
+  for(const [type,re] of STORE_TYPE_HINTS){ if(re.test(s)) return type; }
+  return "";
+}
+// 明示登録があればそれを、無ければ店名から推定した業態を返す
+function effectiveType(p){ return normalizeStoreType(p&&p.storeType) || inferStoreType(p&&p.store) || ""; }
 
 /* ---------- IndexedDB 薄ラッパ ---------- */
 const DB_NAME = "kaimono_db", DB_VER = 1;
@@ -332,7 +392,7 @@ function parseImport(raw){
         quantity:Math.max(1,toInt(it.quantity,1)),
       })).filter(it=> it.name);
       const meta = Array.isArray(j) ? {} :
-        { store:j.store||"", date:(/^\d{4}-\d{2}-\d{2}$/.test(j.date)?j.date:"") };
+        { store:j.store||"", storeType:normalizeStoreType(j.storeType), date:(/^\d{4}-\d{2}-\d{2}$/.test(j.date)?j.date:"") };
       return { items, meta };
     }catch{ /* テキスト解析にフォールバック */ }
   }
@@ -359,6 +419,7 @@ function parseImport(raw){
 function renderParsed(items, meta){
   const box = $("#import-result");
   if(meta.store) $("#f-store").value = meta.store;
+  if(meta.storeType) $("#f-storetype").value = meta.storeType;
   if(meta.date)  $("#f-date").value  = meta.date;
   if(!items.length){
     box.innerHTML = `<p class="hint" style="color:var(--danger)">明細を抽出できませんでした。書式をご確認のうえ、下のフォームに手入力してください。</p>`;
@@ -366,7 +427,7 @@ function renderParsed(items, meta){
   }
   box.innerHTML = `
     <div style="margin-top:12px">
-      <div class="total-bar"><span>抽出した明細（${items.length}件）</span><span>${esc(meta.store||"")} ${esc(meta.date||"")}</span></div>
+      <div class="total-bar"><span>抽出した明細（${items.length}件）</span><span>${esc(meta.store||"")}${meta.storeType?`（${esc(meta.storeType)}）`:""} ${esc(meta.date||"")}</span></div>
       <div id="pi-list">${items.map((it,i)=>`
         <div class="pi">
           <input type="checkbox" data-i="${i}" checked>
@@ -382,6 +443,7 @@ function renderParsed(items, meta){
 async function addCheckedItems(){
   const checks = [...document.querySelectorAll("#pi-list .pi input[type=checkbox]")];
   const store = $("#f-store").value.trim();
+  const storeType = normalizeStoreType($("#f-storetype").value);
   const date  = $("#f-date").value || todayISO();
   const cat   = $("#f-cat").value.trim();
   let added = 0, imageAttached = false;
@@ -392,7 +454,7 @@ async function addCheckedItems(){
     const price = toInt(document.querySelector(`#pi-list .pi-price[data-i="${i}"]`).value, NaN);
     if(!name || !Number.isFinite(price)) continue;
     const rec = { id:uuid(), name, nameKey:normKey(name), price, quantity:1, unitPrice:price,
-      category:cat, store, purchasedAt:date, note:"", imageId:null, createdAt:new Date().toISOString() };
+      category:cat, store, storeType, purchasedAt:date, note:"", imageId:null, createdAt:new Date().toISOString() };
     if(pendingImage && !imageAttached){
       await dbAdd("images",{id:pendingImage.id, blob:pendingImage.blob});
       rec.imageId = pendingImage.id; imageAttached = true;
@@ -415,6 +477,7 @@ async function savePurchase(){
     id: uuid(), name, nameKey: normKey(name), price, quantity: qty,
     unitPrice: Math.round(price/qty),
     category: $("#f-cat").value.trim(), store: $("#f-store").value.trim(),
+    storeType: normalizeStoreType($("#f-storetype").value),
     purchasedAt: $("#f-date").value || todayISO(), note: $("#f-note").value.trim(),
     imageId: null, createdAt: new Date().toISOString(),
   };
@@ -427,7 +490,7 @@ async function savePurchase(){
 }
 function resetAddForm(){
   $("#f-name").value=""; $("#f-price").value=""; $("#f-qty").value="1";
-  $("#f-cat").value=""; $("#f-store").value=""; $("#f-note").value="";
+  $("#f-cat").value=""; $("#f-store").value=""; $("#f-storetype").value=""; $("#f-note").value="";
   $("#f-date").value = todayISO();
   clearShot();
 }
@@ -510,9 +573,17 @@ function buildStats(){
     const pLast = prices.length? prices[prices.length-1]:null;
     let trend="flat";
     if(pAvg!=null && pLast!=null){ if(pLast>pAvg*1.05) trend="up"; else if(pLast<pAvg*0.95) trend="down"; }
+    // よく買う店・業態（購入回数の多い順）
+    const storeCount = new Map(), typeCount = new Map();
+    for(const p of sorted){
+      const s=(p.store||"").trim(); if(s) storeCount.set(s,(storeCount.get(s)||0)+1);
+      const t=effectiveType(p);     if(t) typeCount.set(t,(typeCount.get(t)||0)+1);
+    }
+    const stores = [...storeCount.entries()].sort((a,b)=> b[1]-a[1]).map(e=> e[0]);
+    const storeTypes = [...typeCount.entries()].sort((a,b)=> b[1]-a[1]).map(e=> e[0]);
     out.push({ key, name, count:sorted.length, lastDate:sorted[sorted.length-1].purchasedAt,
       avgInterval, predictedNext:predictedNext?isoOf(predictedNext):null, daysUntil, status,
-      pAvg, pMin, pMax, pLast, trend });
+      pAvg, pMin, pMax, pLast, trend, stores, storeTypes });
   }
   return out;
 }
@@ -560,14 +631,76 @@ function renderStats(){
   }).join("");
 }
 
+/* ============ 買う候補（4回以上／業態で選ぶ）============ */
+const BUY_MIN = 4;                 // 「よく買うもの」とみなす最低購入回数
+let selectedType = null;           // 選択中の業態（null=すべて）
+
+function renderBuy(){
+  const stats = buildStats();
+  const repeat = stats.filter(s=> s.count>=BUY_MIN);
+
+  // リピート品で使われている業態を集めてチップに（既定の並び順）
+  const typeSet = new Set();
+  repeat.forEach(s=> s.storeTypes.forEach(t=> typeSet.add(t)));
+  if(selectedType && !typeSet.has(selectedType)) selectedType = null; // 消えた業態の選択を解除
+  const types = STORE_TYPES.filter(t=> typeSet.has(t));
+
+  const chipsEl = $("#store-chips");
+  if(!types.length){
+    chipsEl.innerHTML = `<span class="hint" style="margin:0">業態つきの記録が増えると、ここに「スーパー」「ドラッグストア」などが並びます。レシート取り込み時に自動で分類されます。</span>`;
+  }else{
+    chipsEl.innerHTML =
+      `<button class="chip" data-type="" aria-pressed="${selectedType===null}">すべて</button>` +
+      types.map(t=> `<button class="chip" data-type="${esc(t)}" aria-pressed="${selectedType===t}">${esc(t)}</button>`).join("");
+    chipsEl.querySelectorAll(".chip").forEach(b=> b.addEventListener("click", ()=>{
+      const v = b.dataset.type;
+      selectedType = (v==="" || v===selectedType) ? null : v; // 同じ業態を再度押すと解除
+      renderBuy();
+    }));
+  }
+
+  let list = selectedType ? repeat.filter(s=> s.storeTypes.includes(selectedType)) : repeat;
+  const rank = st=> st==="due"?0 : st==="soon"?1 : st==="calm"?2 : 3;
+  list = [...list].sort((a,b)=> rank(a.status)-rank(b.status) || b.count-a.count || b.lastDate.localeCompare(a.lastDate));
+
+  $("#buy-title").textContent = selectedType ? `${selectedType} で買うもの` : `よく買うもの（${BUY_MIN}回以上）`;
+
+  const body = $("#buy-body");
+  if(!list.length){
+    body.innerHTML = `<div class="empty" style="padding:18px 6px">${
+      selectedType ? `${selectedType}で4回以上買った品目はまだありません。` :
+      PURCHASES.length ? `同じ品目を${BUY_MIN}回以上記録すると、ここに「よく買うもの」が並びます。` :
+      "記録が増えると、よく買うものが並びます。"}</div>`;
+    return;
+  }
+  body.innerHTML = list.map(s=>{
+    const badge = s.status==="due"? `<span class="badge due">購入時期</span>`
+      : s.status==="soon"? `<span class="badge soon">そろそろ</span>`
+      : s.status==="calm"? `<span class="badge calm">様子見</span>`
+      : `<span class="badge calm">履歴${s.count}件</span>`;
+    const storeLine = s.stores.length? s.stores.slice(0,3).join("・") : "店舗未登録";
+    const typeTag = s.storeTypes.length? `${esc(s.storeTypes[0])}／` : "";
+    return `<div class="stat${s.status==="due"?" due":""}">
+      <div class="stat-top"><span class="stat-name">${esc(s.name)}</span>${badge}</div>
+      <div class="grid2">
+        <div class="kv"><b>購入回数</b><span>${s.count}回</span></div>
+        <div class="kv"><b>前回購入</b><span>${s.lastDate}</span></div>
+        <div class="kv"><b>平均間隔</b><span>${s.avgInterval!=null?`${s.avgInterval}日`:"—"}</span></div>
+        <div class="kv"><b>目安単価</b><span>${s.pAvg!=null?yen(s.pAvg):"—"}</span></div>
+      </div>
+      <div class="kv" style="margin-top:8px"><b>よく買う店</b><span class="plain">${typeTag}${esc(storeLine)}</span></div>
+    </div>`;
+  }).join("");
+}
+
 /* ============ バックアップ ============ */
 function exportCSV(){
   if(!PURCHASES.length){ toast("データがありません"); return; }
-  const head = ["id","商品名","カテゴリ","価格","数量","単価","購入日","店舗","メモ","記録日時"];
+  const head = ["id","商品名","カテゴリ","価格","数量","単価","購入日","店舗","業態","メモ","記録日時"];
   const cell = v=>{ const s=String(v??""); return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s; };
   const lines = [head.join(",")];
   for(const p of [...PURCHASES].sort((a,b)=>a.purchasedAt.localeCompare(b.purchasedAt))){
-    lines.push([p.id,p.name,p.category,p.price,p.quantity,p.unitPrice,p.purchasedAt,p.store,p.note,p.createdAt].map(cell).join(","));
+    lines.push([p.id,p.name,p.category,p.price,p.quantity,p.unitPrice,p.purchasedAt,p.store,p.storeType||"",p.note,p.createdAt].map(cell).join(","));
   }
   const blob = new Blob(["\uFEFF"+lines.join("\r\n")], {type:"text/csv;charset=utf-8"});
   download(blob, `kaimono_${todayISO()}.csv`);
@@ -595,7 +728,7 @@ $("#file-import").addEventListener("change", async e=>{
         id: r.id || uuid(), name: r.name || "", nameKey: normKey(r.name||""),
         price: toInt(r.price,0), quantity: Math.max(1,toInt(r.quantity,1)),
         unitPrice: Number.isFinite(r.unitPrice)? r.unitPrice : Math.round(toInt(r.price,0)/Math.max(1,toInt(r.quantity,1))),
-        category: r.category||"", store: r.store||"",
+        category: r.category||"", store: r.store||"", storeType: normalizeStoreType(r.storeType),
         purchasedAt: /^\d{4}-\d{2}-\d{2}$/.test(r.purchasedAt)? r.purchasedAt : todayISO(),
         note: r.note||"", imageId:null, createdAt: r.createdAt||new Date().toISOString(),
       };
@@ -647,6 +780,7 @@ function go(id){
   document.querySelectorAll("nav button").forEach(b=> b.setAttribute("aria-current", String(b.dataset.go===id)));
   window.scrollTo(0,0);
   if(id==="v-list") renderList();
+  if(id==="v-buy") renderBuy();
   if(id==="v-stats") renderStats();
   if(id==="v-set") updateStorageStatus();
 }
@@ -670,6 +804,8 @@ $("#btn-json").addEventListener("click", exportJSON);
   PURCHASES = await dbAll("purchases");
   $("#f-date").value = todayISO();
   $("#prompt-view").textContent = READ_PROMPT;
+  $("#f-storetype").insertAdjacentHTML("beforeend",
+    STORE_TYPES.map(t=> `<option value="${esc(t)}">${esc(t)}</option>`).join(""));
   refreshDatalists(); updateCount();
   // 保存領域の永続化を要求（ブラウザの自動削除対象から外す。手動削除は別）
   try{ if(navigator.storage?.persist){ const p=await navigator.storage.persisted(); if(!p) await navigator.storage.persist(); } }catch{}
