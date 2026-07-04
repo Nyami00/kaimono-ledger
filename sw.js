@@ -1,6 +1,6 @@
 /* 買い物台帳 Service Worker — アプリ本体をキャッシュしオフライン動作させる
    バージョンを上げると古いキャッシュを破棄して更新します */
-const CACHE = "kaimono-v3";
+const CACHE = "kaimono-v4";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e=>{
