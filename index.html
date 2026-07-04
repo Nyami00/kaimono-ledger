@@ -90,6 +90,13 @@
   .trend-up{color:var(--danger)} .trend-down{color:var(--ok)} .trend-flat{color:var(--muted)}
   .empty{text-align:center; color:var(--muted); padding:34px 8px; font-size:14px}
   .empty .big{font-size:15px; color:var(--ink); font-weight:600; margin-bottom:4px}
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chip{padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; background:#fff;
+    color:var(--ink); font-size:13.5px; font-weight:600; cursor:pointer; white-space:nowrap}
+  .chip:active{background:#F1F3F0}
+  .chip[aria-pressed="true"]{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .chip[aria-pressed="true"]:active{background:var(--accent-d)}
+  .kv .plain{font-family:var(--sans); font-size:13px}
   .search{margin-bottom:12px}
   .hint{font-size:12px; color:var(--muted); margin:6px 2px 0; line-height:1.5}
   .note{background:#EEF1ED; border-radius:var(--r-sm); padding:10px 12px; font-size:12.5px; color:var(--muted); line-height:1.55}
@@ -109,7 +116,7 @@
   #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
   nav{position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--surface);
     border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom);
-    display:grid; grid-template-columns:repeat(4,1fr);}
+    display:grid; grid-template-columns:repeat(5,1fr);}
   nav button{background:none; border:0; padding:10px 0 9px; cursor:pointer; color:var(--muted);
     display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11px; font-weight:600;}
   nav button .ic{width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.7}
@@ -187,6 +194,19 @@
     <div id="list-body"></div>
   </section>
 
+  <!-- ============ 買う候補（リピート・店で選ぶ）============ -->
+  <section id="v-buy" class="view">
+    <div class="card">
+      <h2>これから行く店</h2>
+      <div id="store-chips" class="chips"></div>
+      <p class="hint">店を選ぶと、その店でよく買うものに絞り込みます。もう一度押すと解除。</p>
+    </div>
+    <div class="card">
+      <h2 id="buy-title">よく買うもの（4回以上）</h2>
+      <div id="buy-body"></div>
+    </div>
+  </section>
+
   <!-- ============ 分析・提案 ============ -->
   <section id="v-stats" class="view">
     <div class="card">
@@ -235,6 +255,8 @@
     <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>記録</button>
   <button data-go="v-list">
     <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>一覧</button>
+  <button data-go="v-buy">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h3l2.3 12a1 1 0 0 0 1 .8h9a1 1 0 0 0 1-.8L21 7H6"/></svg>候補</button>
   <button data-go="v-stats">
     <svg class="ic" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>分析</button>
   <button data-go="v-set">
@@ -510,9 +532,13 @@ function buildStats(){
     const pLast = prices.length? prices[prices.length-1]:null;
     let trend="flat";
     if(pAvg!=null && pLast!=null){ if(pLast>pAvg*1.05) trend="up"; else if(pLast<pAvg*0.95) trend="down"; }
+    // よく買う店（購入回数の多い順）
+    const storeCount = new Map();
+    for(const p of sorted){ const s=(p.store||"").trim(); if(s) storeCount.set(s,(storeCount.get(s)||0)+1); }
+    const stores = [...storeCount.entries()].sort((a,b)=> b[1]-a[1]).map(e=> e[0]);
     out.push({ key, name, count:sorted.length, lastDate:sorted[sorted.length-1].purchasedAt,
       avgInterval, predictedNext:predictedNext?isoOf(predictedNext):null, daysUntil, status,
-      pAvg, pMin, pMax, pLast, trend });
+      pAvg, pMin, pMax, pLast, trend, stores });
   }
   return out;
 }
@@ -557,6 +583,67 @@ function renderStats(){
         <div class="kv"><b>単価 直近 / 平均</b><span>${s.pLast!=null?yen(s.pLast):"—"} / ${s.pAvg!=null?yen(s.pAvg):"—"} ${s.pAvg!=null?trendMark(s.trend):""}</span></div>
         <div class="kv"><b>単価 最安 / 最高</b><span>${s.pMin!=null?yen(s.pMin):"—"} / ${s.pMax!=null?yen(s.pMax):"—"}</span></div>
       </div></div>`;
+  }).join("");
+}
+
+/* ============ 買う候補（4回以上／店で選ぶ）============ */
+const BUY_MIN = 4;                 // 「よく買うもの」とみなす最低購入回数
+let selectedStore = null;          // 選択中の店（null=すべて）
+
+function renderBuy(){
+  const stats = buildStats();
+  const repeat = stats.filter(s=> s.count>=BUY_MIN);
+
+  // リピート品で使われている店を集計してチップに
+  const storeSet = new Set();
+  repeat.forEach(s=> s.stores.forEach(st=> storeSet.add(st)));
+  if(selectedStore && !storeSet.has(selectedStore)) selectedStore = null; // 消えた店の選択を解除
+  const stores = [...storeSet].sort((a,b)=> a.localeCompare(b,"ja"));
+
+  const chipsEl = $("#store-chips");
+  if(!stores.length){
+    chipsEl.innerHTML = `<span class="hint" style="margin:0">店舗つきの記録が増えると、ここに店が並びます。</span>`;
+  }else{
+    chipsEl.innerHTML =
+      `<button class="chip" data-store="" aria-pressed="${selectedStore===null}">すべて</button>` +
+      stores.map(s=> `<button class="chip" data-store="${esc(s)}" aria-pressed="${selectedStore===s}">${esc(s)}</button>`).join("");
+    chipsEl.querySelectorAll(".chip").forEach(b=> b.addEventListener("click", ()=>{
+      const v = b.dataset.store;
+      selectedStore = (v==="" || v===selectedStore) ? null : v; // 同じ店を再度押すと解除
+      renderBuy();
+    }));
+  }
+
+  let list = selectedStore ? repeat.filter(s=> s.stores.includes(selectedStore)) : repeat;
+  const rank = st=> st==="due"?0 : st==="soon"?1 : st==="calm"?2 : 3;
+  list = [...list].sort((a,b)=> rank(a.status)-rank(b.status) || b.count-a.count || b.lastDate.localeCompare(a.lastDate));
+
+  $("#buy-title").textContent = selectedStore ? `${selectedStore} でよく買うもの` : `よく買うもの（${BUY_MIN}回以上）`;
+
+  const body = $("#buy-body");
+  if(!list.length){
+    body.innerHTML = `<div class="empty" style="padding:18px 6px">${
+      selectedStore ? "この店で4回以上買った品目はまだありません。" :
+      PURCHASES.length ? `同じ品目を${BUY_MIN}回以上記録すると、ここに「よく買うもの」が並びます。` :
+      "記録が増えると、よく買うものが並びます。"}</div>`;
+    return;
+  }
+  body.innerHTML = list.map(s=>{
+    const badge = s.status==="due"? `<span class="badge due">購入時期</span>`
+      : s.status==="soon"? `<span class="badge soon">そろそろ</span>`
+      : s.status==="calm"? `<span class="badge calm">様子見</span>`
+      : `<span class="badge calm">履歴${s.count}件</span>`;
+    const storeLine = s.stores.length? s.stores.slice(0,3).join("・") : "店舗未登録";
+    return `<div class="stat${s.status==="due"?" due":""}">
+      <div class="stat-top"><span class="stat-name">${esc(s.name)}</span>${badge}</div>
+      <div class="grid2">
+        <div class="kv"><b>購入回数</b><span>${s.count}回</span></div>
+        <div class="kv"><b>前回購入</b><span>${s.lastDate}</span></div>
+        <div class="kv"><b>平均間隔</b><span>${s.avgInterval!=null?`${s.avgInterval}日`:"—"}</span></div>
+        <div class="kv"><b>目安単価</b><span>${s.pAvg!=null?yen(s.pAvg):"—"}</span></div>
+      </div>
+      <div class="kv" style="margin-top:8px"><b>よく買う店</b><span class="plain">${esc(storeLine)}</span></div>
+    </div>`;
   }).join("");
 }
 
@@ -647,6 +734,7 @@ function go(id){
   document.querySelectorAll("nav button").forEach(b=> b.setAttribute("aria-current", String(b.dataset.go===id)));
   window.scrollTo(0,0);
   if(id==="v-list") renderList();
+  if(id==="v-buy") renderBuy();
   if(id==="v-stats") renderStats();
   if(id==="v-set") updateStorageStatus();
 }
